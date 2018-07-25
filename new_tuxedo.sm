@@ -1,0 +1,121 @@
+# Forked from Bobo's gist
+# New Tuxedo Suite Pipeline that uses HISAT2 for alignment and Stringtie for transcript assembly. 
+# The Snakefile that loads raw data and genome reference locally
+GENOME_FA = "/home/users/cjyoon/reference/GRCh37/human_g1k_v37.fasta"
+GENOME_GTF = "/home/users/cjyoon/reference/GRCh37/Homo_sapiens.GRCh37.87.gtf"
+HISAT2_INDEX_PREFIX = GENOME_FA + '.hisat'
+
+
+from pathlib import Path
+import subprocess, shlex
+import os
+import re 
+SAMPLES = list(set([ re.sub(r'_R[0-9]+.fastq.gz', '', i) for i in os.listdir('./fastq') if i.endswith('fastq.gz')]))
+
+#subprocess.call(shlex.split('source activate new_tuxedo'))
+
+rule all:
+    input:
+        quantified = expand("stringtie/quant/{sample}/{sample}.gtf", sample=SAMPLES)
+
+rule extract_genome_splice_sites:
+    input: GENOME_GTF
+    output: GENOME_GTF + '.ss'
+    shell: "hisat2_extract_splice_sites.py {input} > {output}"
+
+
+rule extract_genome_exons:
+    input: GENOME_GTF
+    output: GENOME_GTF + '.exon'
+    shell: "hisat2_extract_exons.py {input} > {output}"
+
+
+rule build_hisat_index:
+    input:
+        genome_fa=GENOME_FA,
+        splice_sites = GENOME_GTF + '.ss',
+        exons= GENOME_GTF + '.exon'
+    output: expand(f"{HISAT2_INDEX_PREFIX}.{{ix}}.ht2", ix=range(1, 9))
+    log: "logs/build.log"
+    threads: 8
+    shell:
+        "hisat2-build -p {threads} {input.genome_fa} "
+        "--ss {input.splice_sites} --exon {input.exons} {HISAT2_INDEX_PREFIX} "
+        "2>{log}"
+
+
+rule align_hisat:
+    input:
+        hisat2_index=expand(f"{HISAT2_INDEX_PREFIX}.{{ix}}.ht2", ix=range(1, 9)),
+        fastq1=lambda wildcards: 'fastq/' + wildcards.sample + '_R1.fastq.gz',
+        fastq2=lambda wildcards: 'fastq/' + wildcards.sample + '_R2.fastq.gz',
+    output: "align_hisat2/{sample}.bam"
+    params:
+        sample = "{sample}", 
+    log: "align_hisat2/{sample}.log"
+    threads: 4
+    shell:
+        "hisat2 -p {threads} --dta -x {HISAT2_INDEX_PREFIX} "
+        "--rg-id {params.sample} --rg SM:{params.sample} --rg LB:{params.sample} --rg PL:ILLUMINA "
+        "-1 {input.fastq1} -2 {input.fastq2} 2>{log} | "
+        "samtools sort -@ {threads} -o {output}; "
+        "samtools index {output}"
+
+
+rule align_all_samples:
+    input: expand("align_hisat2/{sample}.bam", sample=SAMPLES)
+
+
+rule stringtie_assemble:
+    input:
+        genome_gtf=GENOME_GTF,
+        bam="align_hisat2/{sample}.bam"
+    output: "stringtie/assembled/{sample}.gtf"
+    threads: 4
+    shell:
+        "stringtie -p {threads} -G {input.genome_gtf} "
+        "-o {output} -l {wildcards.sample} {input.bam}"
+
+
+rule stringtie_merge_list:
+    input: expand("stringtie/assembled/{sample}.gtf", sample=SAMPLES)
+    output: "stringtie/merged_list.txt"
+    run:
+        with open(output[0], 'w') as f:
+            for gtf in input:
+                print(Path(gtf).resolve(), file=f)
+
+
+rule stringtie_merge:
+    input:
+        genome_gtf=GENOME_GTF,
+        merged_list="stringtie/merged_list.txt",
+        sample_gtfs=expand("stringtie/assembled/{sample}.gtf", sample=SAMPLES)
+    output: "stringtie/merged.gtf"
+    threads: 4
+    shell:
+        "stringtie --merge -p {threads} -G {input.genome_gtf} "
+        "-o {output} {input.merged_list}"
+
+
+rule stringtie_quant:
+    input:
+        merged_gtf="stringtie/merged.gtf",
+        sample_bam="align_hisat2/{sample}.bam"
+    output:
+        gtf="stringtie/quant/{sample}/{sample}.gtf",
+        ctabs=expand(
+            "stringtie/quant/{{sample}}/{name}.ctab",
+            name=['i2t', 'e2t', 'i_data', 'e_data', 't_data']
+        )
+    threads: 4
+    shell:
+        "stringtie -e -B -p {threads} -G {input.merged_gtf} "
+        "-o {output.gtf} {input.sample_bam}"
+
+
+rule quant_all_samples:
+    input: expand("stringtie/quant/{sample}/{sample}.gtf", sample=SAMPLES)
+
+
+

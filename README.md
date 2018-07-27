@@ -18,14 +18,15 @@ $ conda create -n new_tuxedo python=3.6 snakemake hisat2 stringtie samtools bioc
 
 # Usage
 Activate your `new_tuxedo` conda environment before running the pipeline. 
-```bash
+```
 $ source activate new_tuxedo; snakemake -p -s new_tuxedo.sm -j 24
- 
+````
+
 # Preparation step 
 FASTQ files should be in the `fastq` folder in the same level as `new_tuxedo.sm`. FASTQ files can be directly placed inside the `fastq` folder or can simply be a soft link. Relative path from the Snakefile should be `./fastq/[0-9A-Za-z_]+_R1.fastq.gz` and `./fastq/[0-9A-Za-z_]+_R2.fastq.gz`. 
 
 Example folder structure is shown below: 
-```bash
+```
 .
 ├── ~
 ├── fastq

@@ -16,7 +16,7 @@ SAMPLES = list(set([ re.sub(r'_R[0-9]+.fastq.gz', '', i) for i in os.listdir('./
 
 rule all:
     input:
-        quantified = expand("stringtie/quant/{sample}/{sample}.gtf", sample=SAMPLES)
+        quantified = expand("stringtie/quant/{sample}/{sample}.gtf", sample=SAMPLES) + expand("stringtie/quant/{sample}/{sample}.gene.tab", sample=SAMPLES)
 
 rule extract_genome_splice_sites:
     input: GENOME_GTF
@@ -104,6 +104,7 @@ rule stringtie_quant:
         sample_bam="align_hisat2/{sample}.bam"
     output:
         gtf="stringtie/quant/{sample}/{sample}.gtf",
+        gene_table = "stringtie/quant/{sample}/{sample}.gene.tab",
         ctabs=expand(
             "stringtie/quant/{{sample}}/{name}.ctab",
             name=['i2t', 'e2t', 'i_data', 'e_data', 't_data']
@@ -111,11 +112,12 @@ rule stringtie_quant:
     threads: 4
     shell:
         "stringtie -e -B -p {threads} -G {input.merged_gtf} "
+        "-A {output.gene_table} "
         "-o {output.gtf} {input.sample_bam}"
 
 
 rule quant_all_samples:
-    input: expand("stringtie/quant/{sample}/{sample}.gtf", sample=SAMPLES)
+    input: expand("stringtie/quant/{sample}/{sample}.gtf", sample=SAMPLES) + expand("stringtie/quant/{sample}/{sample}.gene.tab", sample=SAMPLES)
 
 
 
